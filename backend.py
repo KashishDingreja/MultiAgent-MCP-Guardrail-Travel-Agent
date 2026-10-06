@@ -114,8 +114,19 @@ AGENT_ORDER = [
 ]
 
 
-def _llm_text(system_prompt: str, user_prompt: str) -> str:
-    response = llm.invoke(
+def _trim_context(value: Any, max_chars: int) -> str:
+    """Keep MCP/LLM context bounded so requests stay within provider limits."""
+    text = str(value or "")
+    if len(text) <= max_chars:
+        return text
+    return (
+        text[:max_chars]
+        + "\n[Additional source content omitted to keep the LLM context compact.]"
+    )
+
+
+def _llm_text(system_prompt: str, user_prompt: str, max_tokens: int = 900) -> str:
+    response = llm.bind(max_tokens=max_tokens).invoke(
         [
             SystemMessage(content=system_prompt),
             HumanMessage(content=user_prompt),
@@ -332,12 +343,12 @@ def flight_agent(state: TravelState):
         print("\nAIRLINES:", airlines)
 
         prompt = FLIGHT_AGENT_PROMPT.format(
-            query=query,
-            airport_data=str(airports)[:3000],
-            airline_data=str(airlines)[:3000],
+            query=_trim_context(query, 1500),
+            airport_data=_trim_context(airports, 2200),
+            airline_data=_trim_context(airlines, 2200),
         )
 
-        response = llm.invoke(
+        response = llm.bind(max_tokens=900).invoke(
             [
                 SystemMessage(content="You are an expert travel flight planner."),
                 HumanMessage(content=prompt),
@@ -383,7 +394,7 @@ def hotel_agent(state: TravelState):
         )
 
     return {
-        "hotel_results": hotel_results,
+        "hotel_results": _trim_context(hotel_results, 4500),
         "messages": [
             AIMessage(
                 content="Hotel information processed."
@@ -435,7 +446,7 @@ Forecast:
         )
 
     return {
-        "weather_results": weather_results,
+        "weather_results": _trim_context(weather_results, 3500),
         "messages": [
             AIMessage(
                 content="Weather information processed."
@@ -452,30 +463,31 @@ def budget_agent(state: TravelState):
 Analyze whether this trip is realistic for the user's budget.
 
 User Query:
-{state['user_query']}
+{_trim_context(state['user_query'], 1500)}
 
 Trip Constraints:
-{state.get('trip_constraints', {})}
+{_trim_context(state.get('trip_constraints', {}), 1000)}
 
 Flight Results:
-{state.get('flight_results', '')}
+{_trim_context(state.get('flight_results', ''), 1400)}
 
 Hotel Results:
-{state.get('hotel_results', '')}
+{_trim_context(state.get('hotel_results', ''), 2200)}
 
 Weather Results:
-{state.get('weather_results', '')}
+{_trim_context(state.get('weather_results', ''), 1200)}
 
-Return:
+Return a concise budget assessment:
 1. Estimated cost categories
 2. Budget risk areas
 3. Money-saving suggestions
 4. Overall feasibility
 
 If exact live prices are unavailable, clearly label estimates as approximate.
+Do not repeat the source data verbatim.
 """
 
-    response = llm.invoke(
+    response = llm.bind(max_tokens=900).invoke(
         [
             SystemMessage(content="You are a practical travel budget analyst."),
             HumanMessage(content=prompt),
@@ -483,7 +495,7 @@ If exact live prices are unavailable, clearly label estimates as approximate.
     )
 
     return {
-        "budget_results": response.content,
+        "budget_results": _trim_context(response.content, 3200),
         "messages": [AIMessage(content="Budget assessment generated.")],
         "llm_calls": state.get("llm_calls", 0) + 1,
     }
@@ -494,31 +506,33 @@ If exact live prices are unavailable, clearly label estimates as approximate.
 # =========================
 def itinerary_agent(state: TravelState):
     prompt = f"""
-Create a complete travel itinerary.
+Create a practical, concise travel itinerary for human review.
 
 User Query:
-{state['user_query']}
+{_trim_context(state['user_query'], 1500)}
 
 Trip Constraints:
-{state.get('trip_constraints', {})}
+{_trim_context(state.get('trip_constraints', {}), 1000)}
 
-Flight Results:
-{state.get('flight_results', '')}
+Flight Research:
+{_trim_context(state.get('flight_results', ''), 1400)}
 
-Hotel Results:
-{state.get('hotel_results', '')}
+Hotel Research:
+{_trim_context(state.get('hotel_results', ''), 2400)}
 
-Weather Results:
-{state.get('weather_results', '')}
+Weather Research:
+{_trim_context(state.get('weather_results', ''), 1400)}
 
-Budget Results:
-{state.get('budget_results', '')}
+Budget Assessment:
+{_trim_context(state.get('budget_results', ''), 1800)}
 
-Make the itinerary practical, budget-aware, and easy to follow.
-Create a clear draft that is ready for human review.
+Build a clear day-by-day plan. Use the research as supporting context; do not
+repeat raw search results. Prioritize realistic sequencing, budget awareness,
+travel time, and weather considerations. Keep the draft focused enough for a
+human to review quickly.
 """
 
-    response = llm.invoke(
+    response = llm.bind(max_tokens=1300).invoke(
         [
             SystemMessage(content="You are an expert travel planner."),
             HumanMessage(content=prompt),
@@ -531,7 +545,7 @@ Create a clear draft that is ready for human review.
     )
 
     return {
-        "itinerary": response.content,
+        "itinerary": _trim_context(response.content, 6500),
         "approval_request": approval_request,
         "messages": [AIMessage(content="Draft itinerary created for human review.")],
         "llm_calls": state.get("llm_calls", 0) + 1,
@@ -582,33 +596,34 @@ The user requested a revision. Apply this feedback carefully:
 """
 
     final_prompt = f"""
-Generate the final travel response for the user.
+Generate the final travel response using the approved/revised draft and the
+most relevant research.
 
 Human Review:
-{review_instruction}
+{_trim_context(review_instruction, 1400)}
 
 User Request:
-{state['user_query']}
+{_trim_context(state['user_query'], 1500)}
 
 Supervisor Constraints:
-{state.get('trip_constraints', {})}
+{_trim_context(state.get('trip_constraints', {}), 1000)}
 
 Flights:
-{state.get('flight_results', '')}
+{_trim_context(state.get('flight_results', ''), 1200)}
 
 Hotels:
-{state.get('hotel_results', '')}
+{_trim_context(state.get('hotel_results', ''), 2000)}
 
 Weather:
-{state.get('weather_results', '')}
+{_trim_context(state.get('weather_results', ''), 1400)}
 
 Budget Analysis:
-{state.get('budget_results', '')}
+{_trim_context(state.get('budget_results', ''), 1700)}
 
 Draft Itinerary:
-{state.get('itinerary', '')}
+{_trim_context(state.get('itinerary', ''), 6000)}
 
-Format the final answer beautifully using these sections:
+Format the final answer with:
 1. Trip Summary
 2. Flight Information
 3. Hotel Suggestions
@@ -617,25 +632,22 @@ Format the final answer beautifully using these sections:
 6. Estimated Budget
 7. Final Recommendations
 
-Important:
-- Be clear and practical.
-- Mention that live flight APIs may not provide ticket prices when pricing is unavailable.
-- Include weather-based travel advice.
-- Keep the response useful for real travel planning.
-- Incorporate the human feedback when revision was requested.
+Be clear and practical. Do not repeat raw research verbatim. Mention when live
+flight APIs do not provide ticket prices. Incorporate human feedback when
+revision was requested.
 """
 
-    response = llm.invoke(
+    response = llm.bind(max_tokens=1500).invoke(
         [
             SystemMessage(
-                content="You are a professional AI travel booking assistant."
+                content="You are a professional AI travel planning assistant."
             ),
             HumanMessage(content=final_prompt),
         ]
     )
 
     return {
-        "final_response": response.content,
+        "final_response": _trim_context(response.content, 8500),
         "messages": [response],
         "llm_calls": state.get("llm_calls", 0) + 1,
     }
