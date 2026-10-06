@@ -3,11 +3,11 @@ let latestAnswerMarkdown = "";
 let waitingForApproval = false;
 
 const AGENT_LABELS = {
-  flight_agent: "✈️ Flight Agent",
-  hotel_agent: "🏨 Hotel Agent",
-  weather_agent: "🌦️ Weather Agent",
-  budget_agent: "💰 Budget Agent",
-  itinerary_agent: "🗓️ Itinerary Agent"
+  flight_agent: "✈️ Flight research",
+  hotel_agent: "🏨 Accommodation research",
+  weather_agent: "🌦️ Weather check",
+  budget_agent: "💰 Budget analysis",
+  itinerary_agent: "🗓️ Itinerary planning"
 };
 
 function setPrompt(text) {
@@ -61,7 +61,7 @@ function showWorkflow(data) {
   const chips = document.getElementById("agentChips");
   const guardrailBadge = document.getElementById("guardrailBadge");
 
-  reasoning.textContent = data.supervisor_reasoning || "Supervisor routing completed.";
+  reasoning.textContent = data.supervisor_reasoning || "Trip planning workflow selected.";
   chips.innerHTML = "";
 
   (data.selected_agents || []).forEach((agent) => {
@@ -72,10 +72,10 @@ function showWorkflow(data) {
   });
 
   if (data.guardrail_allowed === false) {
-    guardrailBadge.textContent = "Guardrail blocked";
+    guardrailBadge.textContent = "Travel safety check blocked";
     guardrailBadge.classList.add("blocked");
   } else {
-    guardrailBadge.textContent = "Guardrail passed";
+    guardrailBadge.textContent = "Travel safety check passed";
     guardrailBadge.classList.remove("blocked");
   }
 
@@ -91,7 +91,7 @@ function showResult(answer, threadId, isDraft = false) {
   const resultTitle = document.getElementById("resultTitle");
 
   renderMarkdown(resultBox, latestAnswerMarkdown);
-  threadInfo.textContent = `Thread ID: ${threadId}`;
+  threadInfo.textContent = `Planning session: ${threadId}`;
   resultTitle.textContent = isDraft ? "Draft Travel Plan" : "Your Final AI Travel Plan";
   resultSection.classList.remove("hidden");
 
@@ -120,7 +120,7 @@ async function sendMessage() {
   hideError();
 
   if (waitingForApproval) {
-    showError("Please approve or revise the current draft before starting another plan.");
+    showError("Please finish reviewing the current trip plan first.");
     return;
   }
 
@@ -128,7 +128,7 @@ async function sendMessage() {
   const message = input.value.trim();
 
   if (!message) {
-    showError("Please enter your travel request first.");
+    showError("Tell us a little about the trip you want to plan.");
     return;
   }
 
